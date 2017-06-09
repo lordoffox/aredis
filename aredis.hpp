@@ -878,11 +878,13 @@ namespace aredis
   struct batch_command
   {
     std::string buff;
+    size_t count = 0;
     inline bool add(redis_command& cmd)
     {
       
       if (cmd.arg_count > 0)
       {
+        ++count;
         cmd.end();
         buff.append(cmd.buff.data() + cmd.head_pos,
           cmd.buff.length() - cmd.head_pos);
@@ -894,6 +896,7 @@ namespace aredis
     inline void clear()
     {
       buff.clear();
+      count = 0;
     }
   };
 
