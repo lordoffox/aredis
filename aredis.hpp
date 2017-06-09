@@ -806,7 +806,7 @@ namespace aredis
 
     inline void end()
     {
-      if (arg_count > 1)
+      if (arg_count > 0)
       {
         size_t slen = i64toa(arg_count, ltoa_buff, 21);
         size_t pos = head_size - slen - 3;
@@ -872,6 +872,28 @@ namespace aredis
         }
       }
       return str;
+    }
+  };
+
+  struct batch_command
+  {
+    std::string buff;
+    inline bool add(redis_command& cmd)
+    {
+      
+      if (cmd.arg_count > 0)
+      {
+        cmd.end();
+        buff.append(cmd.buff.data() + cmd.head_pos,
+          cmd.buff.length() - cmd.head_pos);
+        return true;
+      }
+      return false;
+    }
+
+    inline void clear()
+    {
+      buff.clear();
     }
   };
 
@@ -951,14 +973,8 @@ namespace aredis
       return get_reply(res);
     }
 
-    inline bool command(redis_command& cmd)
+    inline bool check_conn()
     {
-      if (cmd.arg_count == 0)
-      {
-        parser.res.error = rc_command_error;
-        parser.res.error_msg = "command error";
-        return false;
-      }
       if (init == false)
       {
         parser.res.error = rc_server_init_error;
@@ -972,20 +988,56 @@ namespace aredis
           return false;
         }
       }
+      return true;
+    }
+
+    inline bool command(redis_command& cmd)
+    {
+      if (check_conn() == false)
+      {
+        return false;
+      }
+      if (cmd.arg_count == 0)
+      {
+        parser.res.error = rc_command_error;
+        parser.res.error_msg = "command error";
+        return false;
+      }
       cmd.end();
       size_t do_count = retry;
-      do 
+      int ret = ::send(sockfd, cmd.buff.data() + cmd.head_pos,
+        cmd.buff.length() - cmd.head_pos, 0);
+      if (ret < 0)
       {
-        int ret = ::send(sockfd, cmd.buff.data() + cmd.head_pos,
-          cmd.buff.length() - cmd.head_pos, 0);
-        if (ret < 0)
-        {
-          parser.res.error = rc_server_disconnect;
-          parser.res.error_msg = "server disconnect";
-          close();
-          return false;
-        }
-      } while (0);
+        parser.res.error = rc_server_disconnect;
+        parser.res.error_msg = "server disconnect";
+        close();
+        return false;
+      }
+      return true;
+    }
+
+    inline bool command(batch_command const& cmd)
+    {
+      if (check_conn() == false)
+      {
+        return false;
+      }
+      if (cmd.buff.empty())
+      {
+        parser.res.error = rc_command_error;
+        parser.res.error_msg = "command error";
+        return false;
+      }
+      size_t do_count = retry;
+      int ret = ::send(sockfd, cmd.buff.data(), cmd.buff.length(), 0);
+      if (ret < 0)
+      {
+        parser.res.error = rc_server_disconnect;
+        parser.res.error_msg = "server disconnect";
+        close();
+        return false;
+      }
       return true;
     }
 
