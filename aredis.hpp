@@ -2,6 +2,7 @@
 
 #ifdef WIN32
 #include <winsock2.h>
+#include <WS2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
 
 namespace aredis
@@ -27,9 +28,9 @@ namespace aredis
 
 #else
 #include <netinet/in.h>
+#include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/uio.h>
 
 namespace aredis
 {
@@ -976,24 +977,6 @@ namespace aredis
       return get_reply(res);
     }
 
-    inline bool check_conn()
-    {
-      if (init == false)
-      {
-        parser.res.error = rc_server_init_error;
-        parser.res.error_msg = "server init error";
-        return false;
-      }
-      if (sockfd == 0)
-      {
-        if (connect_impl() == false)
-        {
-          return false;
-        }
-      }
-      return true;
-    }
-
     inline bool command(redis_command& cmd)
     {
       if (check_conn() == false)
@@ -1065,6 +1048,24 @@ namespace aredis
         socket_close(sockfd);
         sockfd = 0;
       }
+    }
+
+    inline bool check_conn()
+    {
+      if (init == false)
+      {
+        parser.res.error = rc_server_init_error;
+        parser.res.error_msg = "server init error";
+        return false;
+      }
+      if (sockfd == 0)
+      {
+        if (connect_impl() == false)
+        {
+          return false;
+        }
+      }
+      return true;
     }
 
     inline bool connect_impl()
