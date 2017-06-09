@@ -2,9 +2,22 @@
 
 #ifdef WIN32
 #include <winsock2.h>
+#pragma comment(lib, "Ws2_32.lib")
 
 namespace aredis
 {
+  struct socket_init
+  {
+    socket_init()
+    {
+      WSADATA wsaData;
+      WSAStartup(MAKEWORD(2, 2), &wsaData);
+    }
+    ~socket_init()
+    {
+      WSACleanup();
+    }
+  };
   typedef SOCKET socket_type;
   void socket_close(socket_type fd)
   {
@@ -20,6 +33,7 @@ namespace aredis
 
 namespace aredis
 {
+  struct socket_init{};
   typedef int socket_type;
   void socket_close(socket_type fd)
   {
@@ -36,6 +50,11 @@ namespace aredis
 
 namespace aredis
 {
+  inline void init_socket()
+  {
+    static socket_init sinit;
+  }
+
   enum resp_value_type
   {
     rrt_nil,
@@ -166,7 +185,7 @@ namespace aredis
       return *this;
     }
 
-    resp_value& value(size_t idx)
+    inline resp_value& value(size_t idx)
     {
       if (idx >= size)
       {
@@ -179,7 +198,20 @@ namespace aredis
       return vals[idx];
     }
 
-    std::string dump()
+    inline resp_value const& value(size_t idx) const
+    {
+      if (idx >= size)
+      {
+        throw std::out_of_range("resp array out of range");
+      }
+      if (size > default_array_size)
+      {
+        return dvals[idx];
+      }
+      return vals[idx];
+    }
+
+    inline std::string dump()
     {
       char ltoa[21];
       i64toa(size, ltoa, 21);
@@ -743,7 +775,7 @@ namespace aredis
       ++arg_count;
       if (val == nullptr)
       {
-        buff.append("$-1\r\n");
+        buff.append("$0\r\n\r\n");
       }
       else
       {
@@ -845,6 +877,11 @@ namespace aredis
 
   struct redis_conn
   {
+    redis_conn()
+    {
+      init_socket();
+    }
+
     ~redis_conn()
     {
       close();
@@ -996,6 +1033,7 @@ namespace aredis
           close();
           return false;
         }
+        parser.clear();
         resp_result res;
         if (do_auth)
         {
