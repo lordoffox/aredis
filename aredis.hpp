@@ -118,6 +118,7 @@ namespace aredis
     rc_auth_fail,
     rc_select_db_fail,
     rc_command_error,
+    rc_no_resp,
     rc_resp_invalid,
   };
 
@@ -915,8 +916,6 @@ namespace aredis
 
     inline bool connect(const char * host = "127.0.0.1" , int port = 6379 , char * password = nullptr , int db = 0)
     {
-      if (retry > 3) retry = 3;
-      this->retry = retry;
       char int_buff[21];
       i64toa(port, int_buff, 21);
       addrinfo *result = nullptr;
@@ -974,7 +973,14 @@ namespace aredis
 
     inline bool reply(resp_result& res)
     {
-      return get_reply(res);
+      if (command_count)
+      {
+        --command_count;
+        return get_reply(res);
+      }
+      res.error = rc_no_resp;
+      res.error_msg = "no resp , do command first";
+      return false;
     }
 
     inline bool command(redis_command& cmd)
@@ -990,7 +996,7 @@ namespace aredis
         return false;
       }
       cmd.end();
-      size_t do_count = retry;
+      ++command_count;
       int ret = ::send(sockfd, cmd.buff.data() + cmd.head_pos,
         cmd.buff.length() - cmd.head_pos, 0);
       if (ret < 0)
@@ -1015,7 +1021,7 @@ namespace aredis
         parser.res.error_msg = "command error";
         return false;
       }
-      size_t do_count = retry;
+      command_count += cmd.count;
       int ret = ::send(sockfd, cmd.buff.data(), cmd.buff.length(), 0);
       if (ret < 0)
       {
@@ -1035,7 +1041,7 @@ namespace aredis
     bool do_auth = false;
     bool do_switch = false;
     bool init = false;
-    size_t retry = 0;
+    size_t command_count = 0;
     socket_type sockfd = 0;
     sockaddr serv_addr;
     resp_parser parser;
@@ -1090,6 +1096,7 @@ namespace aredis
           return false;
         }
         parser.clear();
+        command_count = 0;
         resp_result res;
         if (do_auth)
         {
