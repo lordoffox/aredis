@@ -570,12 +570,14 @@ namespace aredis
         case '\r':
         {
           current_state = rs_array_cr;
-          want_count = current_value().len;
+          auto& val = current_value();
+          want_count = val.len;
           res.size = want_count;
           if (res.size > resp_result::default_array_size)
           {
             res.dvals.resize(res.size);
           }
+          val.len = 0;
           return parser_array_end();
         }
         default:
