@@ -985,6 +985,16 @@ namespace aredis
       return false;
     }
 
+    inline void drop_reply()
+    {
+      resp_result res;
+      while (command_count)
+      {
+        --command_count;
+        get_reply(res);
+      }
+    }
+
     inline bool command(redis_command& cmd)
     {
       if (check_conn() == false)
@@ -1056,6 +1066,7 @@ namespace aredis
         socket_close(sockfd);
         sockfd = 0;
       }
+      command_count = 0;
     }
 
     inline bool check_conn()
@@ -1098,7 +1109,6 @@ namespace aredis
           return false;
         }
         parser.clear();
-        command_count = 0;
         resp_result res;
         if (do_auth)
         {
