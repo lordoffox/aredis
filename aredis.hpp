@@ -24,6 +24,12 @@ namespace aredis
   {
     closesocket(fd);
   }
+
+  inline void set_nodelay(socket_type fd)
+  {
+    int on = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&on, sizeof(on));
+  }
 }
 
 #else
@@ -39,6 +45,11 @@ namespace aredis
   void socket_close(socket_type fd)
   {
     close(fd);
+  }
+  inline void set_nodelay(socket_type fd)
+  {
+    int on = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void *)&on, sizeof(on));
   }
 }
 
@@ -1097,6 +1108,7 @@ namespace aredis
         close();
         return false;
       }
+      set_nodelay(sockfd);
       if (!auto_connect_buff.empty())
       {
         int ret = ::send(sockfd, auto_connect_buff.data(), auto_connect_buff.length(), 0);
