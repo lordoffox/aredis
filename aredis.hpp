@@ -981,7 +981,7 @@ namespace aredis
         return get_reply(res);
       }
       res.error = rc_no_resp;
-      res.error_msg = "no resp , do command first";
+      res.error_msg = "no resp do command first";
       return false;
     }
 
@@ -1008,7 +1008,6 @@ namespace aredis
         return false;
       }
       cmd.end();
-      ++command_count;
       int ret = ::send(sockfd, cmd.buff.data() + cmd.head_pos,
         cmd.buff.length() - cmd.head_pos, 0);
       if (ret < 0)
@@ -1018,6 +1017,7 @@ namespace aredis
         close();
         return false;
       }
+      ++command_count;
       return true;
     }
 
@@ -1032,8 +1032,7 @@ namespace aredis
         parser.res.error = rc_command_error;
         parser.res.error_msg = "command error";
         return false;
-      }
-      command_count += cmd.count;
+      }      
       int ret = ::send(sockfd, cmd.buff.data(), cmd.buff.length(), 0);
       if (ret < 0)
       {
@@ -1042,6 +1041,7 @@ namespace aredis
         close();
         return false;
       }
+      command_count += cmd.count;
       return true;
     }
 
@@ -1066,7 +1066,6 @@ namespace aredis
         socket_close(sockfd);
         sockfd = 0;
       }
-      command_count = 0;
     }
 
     inline bool check_conn()
@@ -1109,6 +1108,7 @@ namespace aredis
           return false;
         }
         parser.clear();
+        command_count = 0;
         resp_result res;
         if (do_auth)
         {
@@ -1143,6 +1143,13 @@ namespace aredis
 
     inline bool get_reply(resp_result& res)
     {
+      if (sockfd == 0)
+      {
+        res.error = rc_server_disconnect;
+        res.error_msg = "server disconnect";
+        res.size = 0;
+        return false;
+      }
       char buffer[65536];
       if (sockfd)
       {
