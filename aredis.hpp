@@ -20,7 +20,7 @@ namespace aredis
     }
   };
   typedef SOCKET socket_type;
-  void socket_close(socket_type fd)
+  inline void socket_close(socket_type fd)
   {
     closesocket(fd);
   }
@@ -42,7 +42,7 @@ namespace aredis
 {
   struct socket_init{};
   typedef int socket_type;
-  void socket_close(socket_type fd)
+  inline void socket_close(socket_type fd)
   {
     close(fd);
   }
