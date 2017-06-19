@@ -1162,13 +1162,29 @@ namespace aredis
         res.size = 0;
         return false;
       }
-      char buffer[65536];
+      char buffer[16384];
       if (sockfd)
       {
         parser.reset();
+        if (!parser.buff.empty())
+        {
+          redis_code rc = parser.parser();
+          if (rc == rc_ok)
+          {
+            res = parser.res;
+            return true;
+          }
+          else if (rc != rc_incomplete)
+          {
+            res.error = parser.res.error;
+            res.error_msg = parser.res.error_msg;
+            res.size = 0;
+            return false;
+          }
+        }
         do 
         {
-          int ret = ::recv(sockfd, buffer, 65536, 0);
+          int ret = ::recv(sockfd, buffer, 16384, 0);
           if (ret <= 0)
           {
             close();
