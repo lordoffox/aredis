@@ -1166,40 +1166,27 @@ namespace aredis
       if (sockfd)
       {
         parser.reset();
-        if (!parser.buff.empty())
-        {
-          redis_code rc = parser.parser();
-          if (rc == rc_ok)
-          {
-            res = parser.res;
-            return true;
-          }
-          else if (rc != rc_incomplete)
-          {
-            res.error = parser.res.error;
-            res.error_msg = parser.res.error_msg;
-            res.size = 0;
-            return false;
-          }
-        }
         do 
         {
-          int ret = ::recv(sockfd, buffer, 16384, 0);
-          if (ret <= 0)
+          redis_code rc = parser.parser();
+          if (rc == rc_incomplete)
           {
-            close();
-            parser.res.error = rc_server_disconnect;
-            parser.res.error_msg = "server disconnect";
-            break;
+            int ret = ::recv(sockfd, buffer, sizeof(buffer), 0);
+            if (ret <= 0)
+            {
+              close();
+              parser.res.error = rc_server_disconnect;
+              parser.res.error_msg = "server disconnect";
+              break;
+            }
+            else
+            {
+              parser.data(buffer, ret);
+            }
+            continue;
           }
           else
           {
-            parser.data(buffer, ret);
-            redis_code rc = parser.parser();
-            if (rc == rc_incomplete)
-            {
-              continue;
-            }
             parser.res.error = rc;
             if (rc == rc_ok)
             {
@@ -1207,7 +1194,7 @@ namespace aredis
               return true;
             }
           }
-        } while (0);
+        } while (true);
       }
       res.error = parser.res.error;
       res.error_msg = parser.res.error_msg;
