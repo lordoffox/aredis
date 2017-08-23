@@ -798,12 +798,19 @@ namespace aredis
         {
           len = std::strlen(val);
         }
-        i64toa(len, ltoa_buff, 21);
-        buff.append(1, '$')
-          .append(ltoa_buff)
-          .append("\r\n")
-          .append(val)
-          .append("\r\n");
+        if(len == 0)
+        {
+          buff.append("$0\r\n\r\n");
+        }
+        else
+        {
+          i64toa(len, ltoa_buff, 21);
+          buff.append(1, '$')
+            .append(ltoa_buff)
+            .append("\r\n")
+            .append(val, len)
+            .append("\r\n");
+        }
       }
       return *this;
     }
