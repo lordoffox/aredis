@@ -211,6 +211,21 @@ namespace aredis
       return vals[idx];
     }
 
+    inline bool value(size_t idx, resp_value& val) const
+    {
+      if (idx >= size)
+      {
+        return false;
+      }
+      if (size > default_array_size)
+      {
+        val = dvals[idx];
+        return true;
+      }
+      val = vals[idx];
+      return true;
+    }
+
     inline resp_value const& value(size_t idx) const
     {
       if (idx >= size)
@@ -470,7 +485,7 @@ namespace aredis
         val.type = rrt_nil;
         return parser_value_end();
       }
-      if (remain >= (size_t)len)
+      if (remain >= (size_t)(len + 2))
       {
         if (buff[read_pos + len] == '\r' && buff[read_pos + len + 1] == '\n')
         {
@@ -934,7 +949,7 @@ namespace aredis
       close();
     }
 
-    inline bool connect(const char * host = "127.0.0.1" , int port = 6379 , char * password = nullptr , int db = 0)
+    inline bool connect(const char * host = "127.0.0.1" , int port = 6379 ,const char * password = nullptr , int db = 0)
     {
       char int_buff[21];
       i64toa(port, int_buff, 21);
@@ -1067,6 +1082,26 @@ namespace aredis
 
     inline std::string const& error_msg() const{ return parser.res.error_msg; }
 
+    inline bool query(aredis::redis_command& cmd, aredis::resp_result& res , size_t retry_count = 1)
+    {
+      do
+      {
+        if (this->command(cmd))
+        {
+          if (this->reply(res) == false)
+          {
+            if (res.error == aredis::rc_server_disconnect && retry_count > 0)
+            {
+              --retry_count;
+              continue;
+            }
+            return false;
+          }
+          return true;
+        }
+      } while (true);
+      return true;
+    }
   private:
     bool do_auth = false;
     bool do_switch = false;
