@@ -2,6 +2,7 @@
 
 #ifdef WIN32
 #include <winsock2.h>
+#include <Windows.h>
 #include <WS2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -34,6 +35,7 @@ namespace aredis
 
 #else
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -144,7 +146,7 @@ namespace aredis
     size_t i = len;
     for (; n > 0 && i > 0; --i)
     {
-      lldiv_t d = div(n, 10ll);
+      lldiv_t d = lldiv(n, 10ll);
       n = d.quot;
       buff[i - 1] = (char)d.rem + '0';
     }
