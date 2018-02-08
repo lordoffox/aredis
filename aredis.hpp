@@ -118,6 +118,18 @@ namespace aredis
       }
       return false;
     }
+
+    inline bool is_queued()
+    {
+      if (type == rrt_string_value && len == 6)
+      {
+        if (values.svalue[0] == 'Q' && values.svalue[1] == 'U' && values.svalue[2] == 'E' && values.svalue[3] == 'U' && values.svalue[4] == 'E' && values.svalue[5] == 'D')
+        {
+          return true;
+        }
+      }
+      return false;
+    }
   };
 
   enum redis_code
