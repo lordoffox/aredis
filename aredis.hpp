@@ -883,7 +883,7 @@ namespace aredis
     inline redis_command& cmd(std::string const& cmd, targs const&... targs_)
     {
       reset();
-      arg(cmd.c_str());
+      arg(cmd.c_str(), cmd.length());
       return args(targs_...);
     }
 
