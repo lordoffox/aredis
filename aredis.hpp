@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef WIN32
+#if defined(WIN32) || defined(_WIN32)
 #include <winsock2.h>
 #include <Windows.h>
 #include <WS2tcpip.h>
