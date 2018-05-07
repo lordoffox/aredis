@@ -455,7 +455,6 @@ namespace aredis
           if (isign == is_init)
           {
             isign = is_pos;
-            break;
           }
           auto& val = current_value();
           val.values.ivalue *= 10;
