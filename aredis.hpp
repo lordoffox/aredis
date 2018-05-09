@@ -101,6 +101,8 @@ namespace aredis
     {
       int64_t ivalue;
       const char *  svalue;
+
+      uvalue():ivalue(0){}
     }values;
     int32_t type = rrt_nil;
     int32_t len = 0;
@@ -418,8 +420,6 @@ namespace aredis
         {
           if (isign == is_init)
           {
-            auto& val = current_value();
-            val.values.ivalue = 0;
             isign = is_neg;
             break;
           }
@@ -439,7 +439,6 @@ namespace aredis
           auto& val = current_value();
           if (isign == is_init)
           {
-            val.values.ivalue = 0;
             isign = is_pos;
           }
           val.values.ivalue *= 10;
