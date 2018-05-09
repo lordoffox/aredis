@@ -97,15 +97,28 @@ namespace aredis
 
   struct resp_value
   {
-    resp_value_type type = rrt_nil;
     union uvalue
     {
       int64_t ivalue;
       const char *  svalue;
     }values;
+    int32_t type = rrt_nil;
     int32_t len = 0;
+    std::vector<resp_value> arr;
+
+    inline void clear()
+    {
+      values.ivalue = 0;
+      type = rrt_nil;
+      len = 0;
+      arr.clear();
+    }
 
     inline bool is_nil(){ return type == rrt_nil; }
+
+    inline bool is_array(){ return type == rrt_array_value; }
+
+    inline bool is_error(){ return type == rrt_error_info; }
 
     inline bool is_ok()
     {
@@ -129,6 +142,43 @@ namespace aredis
         }
       }
       return false;
+    }
+
+    template<typename stream_ty>
+    inline void dump(stream_ty& os)
+    {
+      switch (type)
+      {
+      case rrt_nil:
+      {
+        os << "nil\n";
+        break;
+      }
+      case rrt_error_info:
+      {
+        os.write(values.svalue, len);
+        os << '\n';
+        break;
+      }
+      case rrt_integer_value:
+      {
+        os << values.ivalue << '\n';
+        break;
+      }
+      case rrt_string_value:
+      {
+        os.write(values.svalue, len);
+        os << '\n';
+        break;
+      }
+      case rrt_array_value:
+      {
+        for (auto& v : arr)
+        {
+          v.dump(os);
+        }
+      }
+      }
     }
   };
 
@@ -178,15 +228,12 @@ namespace aredis
 
   struct resp_result
   {
-    enum{ default_array_size = 16 };
-    size_t size = 1;
     redis_code error = rc_ok;
-    resp_value vals[default_array_size];
-    std::vector<resp_value> dvals;
+    resp_value val;
     std::string error_msg;
+
     resp_result()
     {
-      memset(&vals[0], 0, sizeof(vals));
     }
 
     ~resp_result()
@@ -197,103 +244,17 @@ namespace aredis
     {
       error = rc_ok;
       error_msg.clear();
-      memset(&vals[0], 0, sizeof(vals));
-      dvals.clear();
-      size = 1;
+      val.clear();
     }
 
     inline resp_result& operator = (resp_result& val)
     {
-      size = val.size;
       error = val.error;
-      memcpy(&vals[0], &val.vals[0], sizeof(vals));
       error_msg = val.error_msg;
-      dvals = val.dvals;
+      this->val = val.val;
       return *this;
     }
 
-    inline resp_value& value(size_t idx)
-    {
-      if (idx >= size)
-      {
-        throw std::out_of_range("resp array out of range");
-      }
-      if (size > default_array_size)
-      {        
-        return dvals[idx];
-      }
-      return vals[idx];
-    }
-
-    inline bool value(size_t idx, resp_value& val) const
-    {
-      if (idx >= size)
-      {
-        return false;
-      }
-      if (size > default_array_size)
-      {
-        val = dvals[idx];
-        return true;
-      }
-      val = vals[idx];
-      return true;
-    }
-
-    inline resp_value const& value(size_t idx) const
-    {
-      if (idx >= size)
-      {
-        throw std::out_of_range("resp array out of range");
-      }
-      if (size > default_array_size)
-      {
-        return dvals[idx];
-      }
-      return vals[idx];
-    }
-
-    inline std::string dump()
-    {
-      char ltoa[21];
-      i64toa(size, ltoa, 21);
-      std::string str;
-      str.append(ltoa)
-        .append(1, '\n');
-      for (size_t i = 0; i < size; ++i)
-      {
-        auto& val = value(i);
-        switch (val.type)
-        {
-        case rrt_nil:
-        {
-          str.append("nil\n");
-          break;
-        }
-        case rrt_error_info:
-        {
-          str.append("error:")
-            .append(error_msg)
-            .append(1, '\n');
-          break;
-        }
-        case rrt_integer_value:
-        {
-          i64toa(val.values.ivalue, ltoa, 21);
-          str.append(ltoa)
-            .append(1, '\n');
-          break;
-        }
-        case rrt_string_value:
-        {
-          str.append(val.values.svalue, val.len)
-            .append(1, '\n');
-          break;
-        }
-        }
-      }
-      return str;
-    }
   };
 
   struct resp_parser
@@ -304,14 +265,18 @@ namespace aredis
       is_pos,
       is_neg
     };
+    struct ctx
+    {
+      size_t want_count = 1;
+      size_t read_count = 0;
+      resp_value * current = nullptr;
+    };
     std::string buff;
-    bool is_array = false;
     integer_sign isign = is_init;
-    size_t want_count = 1;
-    size_t read_count = 0;
     size_t read_pos = 0;
     resp_state current_state = rs_type_read;
     resp_result res;
+    std::vector<ctx> ctxs;
 
     inline void data(const char * data, size_t len)
     {
@@ -324,34 +289,37 @@ namespace aredis
       buff.clear();
     }
 
+    inline ctx& current_ctx()
+    {
+      return ctxs.back();
+    }
+
     inline resp_value& current_value()
     {
-      if (res.size <= resp_result::default_array_size)
+      ctx& c = current_ctx();
+      if (c.current->type == rrt_array_value)
       {
-        return res.vals[read_count];
+        return c.current->arr[c.read_count];
       }
-      return res.dvals[read_count];
+      return *c.current;
     }
 
     inline redis_code parser_value_end()
     {
-      ++read_count;
-      if (read_count == want_count)
+      ctx * c = &current_ctx();
+      ++c->read_count;
+      while (c->read_count == c->want_count)
       {
-        current_state = rs_done;
-        for (size_t i = 0; i < res.size; ++i)
+        ctxs.pop_back();
+        if (ctxs.empty())
         {
-          auto& val = res.value(i);
-          if (val.type == rrt_string_value)
-          {
-            val.values.svalue = buff.data() + val.values.ivalue;
-          }
+          current_state = rs_done;
+          return rc_ok;
         }
+        c = &current_ctx();
+        ++c->read_count;
       }
-      else
-      {
-        current_state = rs_type_read;
-      }
+      current_state = rs_type_read;
       return rc_ok;
     }
 
@@ -362,7 +330,8 @@ namespace aredis
         if (buff[read_pos++] == '\n')
         {
           auto& val = current_value();
-          val.len = read_pos - (size_t)val.values.ivalue - 2;
+          val.len = int(read_pos - (size_t)val.values.ivalue - 2);
+          val.values.svalue = buff.data() + val.values.ivalue;
           return parser_value_end();
         }
         else
@@ -393,8 +362,9 @@ namespace aredis
         if (buff[read_pos++] == '\n')
         {
           auto& val = current_value();
-          val.len = read_pos - (size_t)val.values.ivalue - 2;
+          val.len = int(read_pos - (size_t)val.values.ivalue - 2);
           res.error_msg.assign(buff.data() + val.values.ivalue, val.len);
+          val.values.svalue = buff.data() + val.values.ivalue;
           return parser_value_end();
         }
         else
@@ -448,6 +418,8 @@ namespace aredis
         {
           if (isign == is_init)
           {
+            auto& val = current_value();
+            val.values.ivalue = 0;
             isign = is_neg;
             break;
           }
@@ -464,11 +436,12 @@ namespace aredis
         case '8':
         case '9':
         {
+          auto& val = current_value();
           if (isign == is_init)
           {
+            val.values.ivalue = 0;
             isign = is_pos;
           }
-          auto& val = current_value();
           val.values.ivalue *= 10;
           val.values.ivalue += (c - '0');
           break;
@@ -503,6 +476,7 @@ namespace aredis
         if (buff[read_pos + len] == '\r' && buff[read_pos + len + 1] == '\n')
         {
           read_pos += (len + 2);
+          val.values.svalue = buff.data() + val.values.ivalue;
           return parser_value_end();
         }
         return rc_resp_invalid;
@@ -609,14 +583,24 @@ namespace aredis
         case '\r':
         {
           current_state = rs_array_cr;
-          auto& val = current_value();
-          want_count = val.len;
-          res.size = want_count;
-          if (res.size > resp_result::default_array_size)
+          auto& c = current_ctx();
+          auto& cv = current_value();
+          if (c.current->type == rrt_nil)
           {
-            res.dvals.resize(res.size);
+            c.current->type = rrt_array_value;
+            c.want_count = cv.len;
+            c.current->arr.resize(cv.len);
           }
-          val.len = 0;
+          else
+          {
+            ctxs.emplace_back();
+            auto& nc = ctxs.back();
+            cv.type = rrt_array_value;
+            cv.arr.resize(cv.len);
+            nc.current = &cv;
+            nc.want_count = cv.len;
+          }
+          cv.len = 0;
           return parser_array_end();
         }
         default:
@@ -670,12 +654,6 @@ namespace aredis
       }
       case '*':
       {
-        if (is_array)
-        {
-          res.error_msg = "invalid resp";
-          return rc_resp_invalid;
-        }
-        is_array = true;
         current_state = rs_array_read;
         return parser_array_len();
       }
@@ -687,9 +665,9 @@ namespace aredis
     inline void reset()
     {
       buff.erase(0, read_pos);
-      is_array = false;
-      want_count = 1;
-      read_count = 0;
+      ctxs.resize(1);
+      auto& c = current_ctx();
+      c.current = &res.val;
       read_pos = 0;
       current_state = rs_type_read;
       res.reset();
@@ -701,7 +679,7 @@ namespace aredis
       {
         reset();
       }
-      while (want_count > read_count)
+      while (!ctxs.empty())
       {
         redis_code rc;
         switch (current_state)
@@ -929,7 +907,7 @@ namespace aredis
   {
     std::string buff;
     size_t count = 0;
-    inline bool add(redis_command& cmd)
+    inline bool add(redis_command & cmd)
     {
       
       if (cmd.arg_count > 0)
@@ -997,7 +975,7 @@ namespace aredis
       if (password != nullptr && password[0] != 0)
       {
         do_auth = true;
-        int len = std::strlen(password);
+        int len = (int)std::strlen(password);
         i64toa(len, int_buff, 21);
         auto_connect_buff.append("*2\r\n$4\r\nauth\r\n$")
           .append(int_buff)
@@ -1008,7 +986,7 @@ namespace aredis
       if (db > 0)
       {
         do_switch = true;
-        int len = i64toa(db, int_buff, 21);
+        int len = (int)i64toa(db, int_buff, 21);
         std::string slen = std::to_string(len);
         auto_connect_buff.append("*2\r\n$6\r\nselect\r\n$")
           .append(slen)
@@ -1055,7 +1033,7 @@ namespace aredis
       }
       cmd.end();
       int ret = ::send(sockfd, cmd.buff.data() + cmd.head_pos,
-        cmd.buff.length() - cmd.head_pos, 0);
+        int(cmd.buff.length() - cmd.head_pos), 0);
       if (ret < 0)
       {
         parser.res.error = rc_server_disconnect;
@@ -1079,7 +1057,7 @@ namespace aredis
         parser.res.error_msg = "command error";
         return false;
       }      
-      int ret = ::send(sockfd, cmd.buff.data(), cmd.buff.length(), 0);
+      int ret = ::send(sockfd, cmd.buff.data(), (int)cmd.buff.length(), 0);
       if (ret < 0)
       {
         parser.res.error = rc_server_disconnect;
@@ -1166,7 +1144,7 @@ namespace aredis
       set_nodelay(sockfd);
       if (!auto_connect_buff.empty())
       {
-        int ret = ::send(sockfd, auto_connect_buff.data(), auto_connect_buff.length(), 0);
+        int ret = ::send(sockfd, auto_connect_buff.data(), (int)auto_connect_buff.length(), 0);
         if (ret < 0)
         {
           parser.res.error = rc_server_disconnect;
@@ -1183,7 +1161,7 @@ namespace aredis
           {
             return false;
           }
-          if (!res.value(0).is_ok())
+          if (!res.val.is_ok())
           {
             parser.res.error = rc_auth_fail;
             parser.res.error_msg = "auth failed";
@@ -1196,7 +1174,7 @@ namespace aredis
           {
             return false;
           }
-          if (!res.value(0).is_ok())
+          if (!res.val.is_ok())
           {
             parser.res.error = rc_select_db_fail;
             parser.res.error_msg = "select db failed";
@@ -1214,7 +1192,7 @@ namespace aredis
       {
         res.error = rc_server_disconnect;
         res.error_msg = "server disconnect";
-        res.size = 0;
+        res.val.clear();
         return false;
       }
       char buffer[16384];
@@ -1253,7 +1231,7 @@ namespace aredis
       }
       res.error = parser.res.error;
       res.error_msg = parser.res.error_msg;
-      res.size = 0;
+      res.val.clear();
       return false;
     }
   };
